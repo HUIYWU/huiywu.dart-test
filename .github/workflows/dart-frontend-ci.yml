@@ -1,4 +1,4 @@
-name: dart-frontend-ci
+name: dart-frontend-closure-ci
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  build:
+  pack-closure:
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -28,11 +28,11 @@ jobs:
         with:
           sdk: 3.12.2
 
-      - name: Verify host Dart SDK
+      - name: Record host Dart SDK info
         shell: bash
         run: |
           set -euxo pipefail
-          which dart
+          which dart | tee "$GITHUB_WORKSPACE/host_dart_path.txt"
           dart --version 2>&1 | tee "$GITHUB_WORKSPACE/dart_version.txt"
 
       - name: Checkout Dart SDK 3.12.2 with depot_tools
@@ -51,6 +51,7 @@ jobs:
           gclient sync -D
 
           git rev-parse HEAD > "$GITHUB_WORKSPACE/dart_sdk_commit.txt"
+          git status --short > "$GITHUB_WORKSPACE/dart_sdk_git_status.txt" || true
 
       - name: Verify key source directories
         shell: bash
@@ -68,69 +69,22 @@ jobs:
           test -d pkg/_fe_analyzer_shared
           test -d pkg/_js_interop_checks
           test -d third_party/pkg
+          test -d third_party/devtools
 
-      - name: Build hello world Android arm64 AOT snapshot
-        id: hello_aot
+      - name: Record source tree inventory
         shell: bash
         working-directory: dart-sdk-full/sdk
-        run: |
-          set -euxo pipefail
-          cat > /tmp/aot_hello.dart <<'EOF'
-          void main() {
-            print('hello ext aot');
-          }
-          EOF
-
-          dart compile aot-snapshot \
-            --target-os=android \
-            --target-arch=arm64 \
-            -o /tmp/aot_hello.aot \
-            /tmp/aot_hello.dart
-
-          cp /tmp/aot_hello.aot "$GITHUB_WORKSPACE/aot_hello_android_arm64.aot"
-
-      - name: Try direct frontend_server Android arm64 AOT build
-        id: frontend_direct
-        shell: bash
-        working-directory: dart-sdk-full/sdk
-        continue-on-error: true
-        run: |
-          set -euxo pipefail
-          dart compile aot-snapshot \
-            --target-os=android \
-            --target-arch=arm64 \
-            --packages=.dart_tool/package_config.json \
-            -o /tmp/frontend_server_android_arm64.aot \
-            pkg/frontend_server/bin/frontend_server_starter.dart \
-            2>&1 | tee "$GITHUB_WORKSPACE/frontend_direct_build.log"
-
-          cp /tmp/frontend_server_android_arm64.aot "$GITHUB_WORKSPACE/frontend_server_android_arm64.aot"
-
-      - name: Try official build target fallback
-        id: frontend_official
-        if: steps.frontend_direct.outcome != 'success'
-        shell: bash
-        working-directory: dart-sdk-full/sdk
-        continue-on-error: true
         run: |
           set -euxo pipefail
           {
-            python3 tools/build.py -m release -a arm64 create_sdk
-            python3 tools/build.py -m release -a arm64 runtime || true
-            python3 tools/build.py -m release -a arm64 frontend_server_aot || true
-          } 2>&1 | tee "$GITHUB_WORKSPACE/frontend_official_build.log"
+            echo '# top-level pkg directories'
+            find pkg -maxdepth 1 -mindepth 1 -type d | sort
+            echo
+            echo '# top-level third_party directories'
+            find third_party -maxdepth 1 -mindepth 1 -type d | sort
+          } | tee "$GITHUB_WORKSPACE/source_tree_inventory.txt"
 
-          find out -name 'frontend_server_aot.dart.snapshot' | sort | tee "$GITHUB_WORKSPACE/frontend_server_snapshot_candidates.txt"
-
-          candidate="$(find out -name 'frontend_server_aot.dart.snapshot' | sort | head -n1 || true)"
-          if [ -n "$candidate" ]; then
-            cp "$candidate" "$GITHUB_WORKSPACE/frontend_server_aot.dart.snapshot"
-          else
-            echo 'No frontend_server_aot.dart.snapshot found' >&2
-            exit 1
-          fi
-
-      - name: Prepare closure package directories
+      - name: Prepare CI outputs
         if: always()
         shell: bash
         working-directory: dart-sdk-full/sdk
@@ -140,25 +94,12 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/ci_outputs"
 
           cp -f "$GITHUB_WORKSPACE/dart_sdk_commit.txt" "$GITHUB_WORKSPACE/ci_outputs/" || true
+          cp -f "$GITHUB_WORKSPACE/dart_sdk_git_status.txt" "$GITHUB_WORKSPACE/ci_outputs/" || true
           cp -f "$GITHUB_WORKSPACE/dart_version.txt" "$GITHUB_WORKSPACE/ci_outputs/" || true
-          cp -f "$GITHUB_WORKSPACE/aot_hello_android_arm64.aot" "$GITHUB_WORKSPACE/ci_outputs/" || true
-          cp -f "$GITHUB_WORKSPACE/frontend_direct_build.log" "$GITHUB_WORKSPACE/ci_outputs/" || true
-          cp -f "$GITHUB_WORKSPACE/frontend_official_build.log" "$GITHUB_WORKSPACE/ci_outputs/" || true
-
-          if [ -f "$GITHUB_WORKSPACE/frontend_server_android_arm64.aot" ]; then
-            cp -f "$GITHUB_WORKSPACE/frontend_server_android_arm64.aot" "$GITHUB_WORKSPACE/ci_outputs/"
-          fi
-
-          if [ -f "$GITHUB_WORKSPACE/frontend_server_aot.dart.snapshot" ]; then
-            cp -f "$GITHUB_WORKSPACE/frontend_server_aot.dart.snapshot" "$GITHUB_WORKSPACE/ci_outputs/"
-          fi
-
-          if [ -f "$GITHUB_WORKSPACE/frontend_server_snapshot_candidates.txt" ]; then
-            cp -f "$GITHUB_WORKSPACE/frontend_server_snapshot_candidates.txt" "$GITHUB_WORKSPACE/ci_outputs/"
-          fi
+          cp -f "$GITHUB_WORKSPACE/host_dart_path.txt" "$GITHUB_WORKSPACE/ci_outputs/" || true
+          cp -f "$GITHUB_WORKSPACE/source_tree_inventory.txt" "$GITHUB_WORKSPACE/ci_outputs/" || true
 
       - name: Pack minimal closure as tar.xz
-        if: always()
         shell: bash
         working-directory: dart-sdk-full/sdk
         run: |
@@ -178,7 +119,6 @@ jobs:
             third_party/devtools
 
       - name: Pack full workspace as tar.xz
-        if: always()
         shell: bash
         working-directory: dart-sdk-full/sdk
         run: |
@@ -192,7 +132,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dart-frontend-ci-outputs
+          name: dart-frontend-closure-outputs
           path: ci_outputs/
           if-no-files-found: error
           retention-days: 14
