@@ -83,7 +83,6 @@ jobs:
             echo '# top-level third_party directories'
             find third_party -maxdepth 1 -mindepth 1 -type d | sort
           } | tee "$GITHUB_WORKSPACE/source_tree_inventory.txt"
-
       - name: Prepare CI outputs
         if: always()
         shell: bash
@@ -99,12 +98,22 @@ jobs:
           cp -f "$GITHUB_WORKSPACE/host_dart_path.txt" "$GITHUB_WORKSPACE/ci_outputs/" || true
           cp -f "$GITHUB_WORKSPACE/source_tree_inventory.txt" "$GITHUB_WORKSPACE/ci_outputs/" || true
 
+          if [ -f "$GITHUB_WORKSPACE/pubspec.yaml" ]; then
+            cp -f "$GITHUB_WORKSPACE/pubspec.yaml" "$GITHUB_WORKSPACE/ci_outputs/pubspec.yaml"
+          fi
+
       - name: Pack minimal closure as tar.xz
         shell: bash
         working-directory: dart-sdk-full/sdk
         run: |
           set -euxo pipefail
+          extra_args=()
+          if [ -f "$GITHUB_WORKSPACE/pubspec.yaml" ]; then
+            extra_args+=(--transform "s#^$GITHUB_WORKSPACE/pubspec.yaml#pubspec.yaml#" "$GITHUB_WORKSPACE/pubspec.yaml")
+          fi
+
           tar -cJf "$GITHUB_WORKSPACE/ci_outputs/dart_frontend_closure_${DART_VERSION}.tar.xz" \
+            "${extra_args[@]}" \
             pkg/frontend_server \
             pkg/front_end \
             pkg/kernel \
@@ -123,10 +132,17 @@ jobs:
         working-directory: dart-sdk-full/sdk
         run: |
           set -euxo pipefail
+          extra_args=()
+          if [ -f "$GITHUB_WORKSPACE/pubspec.yaml" ]; then
+            extra_args+=(--transform "s#^$GITHUB_WORKSPACE/pubspec.yaml#pubspec.yaml#" "$GITHUB_WORKSPACE/pubspec.yaml")
+          fi
+
           tar -cJf "$GITHUB_WORKSPACE/ci_outputs/dart_pkg_workspace_${DART_VERSION}.tar.xz" \
+            "${extra_args[@]}" \
             pkg \
             third_party/pkg \
             third_party/devtools
+
 
       - name: Upload CI outputs
         if: always()
