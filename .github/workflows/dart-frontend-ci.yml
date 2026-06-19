@@ -10,6 +10,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    env:
+      DART_VERSION: 3.12.2
 
     steps:
       - name: Checkout repository
@@ -20,6 +22,18 @@ jobs:
           set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y xz-utils
+
+      - name: Set up host Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: 3.12.2
+
+      - name: Verify host Dart SDK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          which dart
+          dart --version 2>&1 | tee "$GITHUB_WORKSPACE/dart_version.txt"
 
       - name: Checkout Dart SDK 3.12.2 with depot_tools
         shell: bash
@@ -33,11 +47,10 @@ jobs:
 
           fetch dart
           cd sdk
-          git checkout 3.12.2
+          git checkout "$DART_VERSION"
           gclient sync -D
 
           git rev-parse HEAD > "$GITHUB_WORKSPACE/dart_sdk_commit.txt"
-          dart --version 2>&1 | tee "$GITHUB_WORKSPACE/dart_version.txt"
 
       - name: Verify key source directories
         shell: bash
@@ -88,7 +101,8 @@ jobs:
             --target-arch=arm64 \
             --packages=.dart_tool/package_config.json \
             -o /tmp/frontend_server_android_arm64.aot \
-            pkg/frontend_server/bin/frontend_server_starter.dart
+            pkg/frontend_server/bin/frontend_server_starter.dart \
+            2>&1 | tee "$GITHUB_WORKSPACE/frontend_direct_build.log"
 
           cp /tmp/frontend_server_android_arm64.aot "$GITHUB_WORKSPACE/frontend_server_android_arm64.aot"
 
@@ -100,9 +114,11 @@ jobs:
         continue-on-error: true
         run: |
           set -euxo pipefail
-          python3 tools/build.py -m release -a arm64 create_sdk
-          python3 tools/build.py -m release -a arm64 runtime || true
-          python3 tools/build.py -m release -a arm64 frontend_server_aot || true
+          {
+            python3 tools/build.py -m release -a arm64 create_sdk
+            python3 tools/build.py -m release -a arm64 runtime || true
+            python3 tools/build.py -m release -a arm64 frontend_server_aot || true
+          } 2>&1 | tee "$GITHUB_WORKSPACE/frontend_official_build.log"
 
           find out -name 'frontend_server_aot.dart.snapshot' | sort | tee "$GITHUB_WORKSPACE/frontend_server_snapshot_candidates.txt"
 
@@ -115,6 +131,7 @@ jobs:
           fi
 
       - name: Prepare closure package directories
+        if: always()
         shell: bash
         working-directory: dart-sdk-full/sdk
         run: |
@@ -122,9 +139,11 @@ jobs:
           rm -rf "$GITHUB_WORKSPACE/ci_outputs"
           mkdir -p "$GITHUB_WORKSPACE/ci_outputs"
 
-          cp -f "$GITHUB_WORKSPACE/dart_sdk_commit.txt" "$GITHUB_WORKSPACE/ci_outputs/"
-          cp -f "$GITHUB_WORKSPACE/dart_version.txt" "$GITHUB_WORKSPACE/ci_outputs/"
-          cp -f "$GITHUB_WORKSPACE/aot_hello_android_arm64.aot" "$GITHUB_WORKSPACE/ci_outputs/"
+          cp -f "$GITHUB_WORKSPACE/dart_sdk_commit.txt" "$GITHUB_WORKSPACE/ci_outputs/" || true
+          cp -f "$GITHUB_WORKSPACE/dart_version.txt" "$GITHUB_WORKSPACE/ci_outputs/" || true
+          cp -f "$GITHUB_WORKSPACE/aot_hello_android_arm64.aot" "$GITHUB_WORKSPACE/ci_outputs/" || true
+          cp -f "$GITHUB_WORKSPACE/frontend_direct_build.log" "$GITHUB_WORKSPACE/ci_outputs/" || true
+          cp -f "$GITHUB_WORKSPACE/frontend_official_build.log" "$GITHUB_WORKSPACE/ci_outputs/" || true
 
           if [ -f "$GITHUB_WORKSPACE/frontend_server_android_arm64.aot" ]; then
             cp -f "$GITHUB_WORKSPACE/frontend_server_android_arm64.aot" "$GITHUB_WORKSPACE/ci_outputs/"
@@ -139,11 +158,12 @@ jobs:
           fi
 
       - name: Pack minimal closure as tar.xz
+        if: always()
         shell: bash
         working-directory: dart-sdk-full/sdk
         run: |
           set -euxo pipefail
-          tar -cJf "$GITHUB_WORKSPACE/ci_outputs/dart_frontend_closure_3.12.2.tar.xz" \
+          tar -cJf "$GITHUB_WORKSPACE/ci_outputs/dart_frontend_closure_${DART_VERSION}.tar.xz" \
             pkg/frontend_server \
             pkg/front_end \
             pkg/kernel \
@@ -158,16 +178,18 @@ jobs:
             third_party/devtools
 
       - name: Pack full workspace as tar.xz
+        if: always()
         shell: bash
         working-directory: dart-sdk-full/sdk
         run: |
           set -euxo pipefail
-          tar -cJf "$GITHUB_WORKSPACE/ci_outputs/dart_pkg_workspace_3.12.2.tar.xz" \
+          tar -cJf "$GITHUB_WORKSPACE/ci_outputs/dart_pkg_workspace_${DART_VERSION}.tar.xz" \
             pkg \
             third_party/pkg \
             third_party/devtools
 
       - name: Upload CI outputs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: dart-frontend-ci-outputs
