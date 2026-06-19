@@ -98,8 +98,8 @@ jobs:
           cp -f "$GITHUB_WORKSPACE/host_dart_path.txt" "$GITHUB_WORKSPACE/ci_outputs/" || true
           cp -f "$GITHUB_WORKSPACE/source_tree_inventory.txt" "$GITHUB_WORKSPACE/ci_outputs/" || true
 
-          if [ -f "$GITHUB_WORKSPACE/pubspec.yaml" ]; then
-            cp -f "$GITHUB_WORKSPACE/pubspec.yaml" "$GITHUB_WORKSPACE/ci_outputs/pubspec.yaml"
+          if [ -f "$GITHUB_WORKSPACE/dart-sdk-full/sdk/pubspec.yaml" ]; then
+            cp -f "$GITHUB_WORKSPACE/dart-sdk-full/sdk/pubspec.yaml" "$GITHUB_WORKSPACE/ci_outputs/dart_sdk_pubspec.yaml"
           fi
 
       - name: Pack minimal closure as tar.xz
@@ -108,8 +108,8 @@ jobs:
         run: |
           set -euxo pipefail
           extra_args=()
-          if [ -f "$GITHUB_WORKSPACE/pubspec.yaml" ]; then
-            extra_args+=(--transform "s#^$GITHUB_WORKSPACE/pubspec.yaml#pubspec.yaml#" "$GITHUB_WORKSPACE/pubspec.yaml")
+          if [ -f "$GITHUB_WORKSPACE/dart-sdk-full/sdk/pubspec.yaml" ]; then
+            extra_args+=(pubspec.yaml)
           fi
 
           tar -cJf "$GITHUB_WORKSPACE/ci_outputs/dart_frontend_closure_${DART_VERSION}.tar.xz" \
@@ -133,8 +133,8 @@ jobs:
         run: |
           set -euxo pipefail
           extra_args=()
-          if [ -f "$GITHUB_WORKSPACE/pubspec.yaml" ]; then
-            extra_args+=(--transform "s#^$GITHUB_WORKSPACE/pubspec.yaml#pubspec.yaml#" "$GITHUB_WORKSPACE/pubspec.yaml")
+          if [ -f "$GITHUB_WORKSPACE/dart-sdk-full/sdk/pubspec.yaml" ]; then
+            extra_args+=(pubspec.yaml)
           fi
 
           tar -cJf "$GITHUB_WORKSPACE/ci_outputs/dart_pkg_workspace_${DART_VERSION}.tar.xz" \
