@@ -107,12 +107,8 @@ jobs:
         run: |
           set -euxo pipefail
           tar -cJf "$GITHUB_WORKSPACE/ci_outputs/dart_full_workspace_${DART_VERSION}.tar.xz" \
-            --exclude='sdk/.git' \
-            --exclude='sdk/.git/**' \
-            --exclude='sdk/**/.git' \
-            --exclude='sdk/**/.git/**' \
-            --exclude='sdk/**/.gitignore' \
-            --exclude='sdk/**/.gitmodules' \
+            --exclude='sdk/buildtools' \
+            --exclude='sdk/buildtools/**' \
             sdk
 
 
