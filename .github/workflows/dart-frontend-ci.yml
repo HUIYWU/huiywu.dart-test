@@ -1,4 +1,4 @@
-name: dart-frontend-closure-ci
+name: dart-full-workspace-pack-ci
 
 on:
   workflow_dispatch:
@@ -7,9 +7,9 @@ on:
   pull_request:
 
 jobs:
-  pack-closure:
+  pack-workspace:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     env:
       DART_VERSION: 3.12.2
 
@@ -35,7 +35,7 @@ jobs:
           which dart | tee "$GITHUB_WORKSPACE/host_dart_path.txt"
           dart --version 2>&1 | tee "$GITHUB_WORKSPACE/dart_version.txt"
 
-      - name: Checkout Dart SDK 3.12.2 with depot_tools
+      - name: Checkout full Dart workspace with depot_tools
         shell: bash
         run: |
           set -euxo pipefail
@@ -53,36 +53,38 @@ jobs:
           git rev-parse HEAD > "$GITHUB_WORKSPACE/dart_sdk_commit.txt"
           git status --short > "$GITHUB_WORKSPACE/dart_sdk_git_status.txt" || true
 
-      - name: Verify key source directories
+      - name: Verify workspace root files and key directories
         shell: bash
         working-directory: dart-sdk-full/sdk
         run: |
           set -euxo pipefail
+          test -f pubspec.yaml
+          test -f DEPS
+          test -d pkg
+          test -d runtime
+          test -d sdk
+          test -d third_party
+          test -d tools
           test -d pkg/frontend_server
-          test -d pkg/front_end
-          test -d pkg/kernel
-          test -d pkg/vm
-          test -d pkg/compiler
-          test -d pkg/dev_compiler
-          test -d pkg/dart2wasm
-          test -d pkg/build_integration
-          test -d pkg/_fe_analyzer_shared
-          test -d pkg/_js_interop_checks
           test -d third_party/pkg
           test -d third_party/devtools
 
-      - name: Record source tree inventory
+      - name: Record workspace inventory
         shell: bash
         working-directory: dart-sdk-full/sdk
         run: |
           set -euxo pipefail
           {
+            echo '# workspace root entries'
+            find . -maxdepth 1 -mindepth 1 | sort
+            echo
             echo '# top-level pkg directories'
             find pkg -maxdepth 1 -mindepth 1 -type d | sort
             echo
             echo '# top-level third_party directories'
             find third_party -maxdepth 1 -mindepth 1 -type d | sort
           } | tee "$GITHUB_WORKSPACE/source_tree_inventory.txt"
+
       - name: Prepare CI outputs
         if: always()
         shell: bash
@@ -97,58 +99,28 @@ jobs:
           cp -f "$GITHUB_WORKSPACE/dart_version.txt" "$GITHUB_WORKSPACE/ci_outputs/" || true
           cp -f "$GITHUB_WORKSPACE/host_dart_path.txt" "$GITHUB_WORKSPACE/ci_outputs/" || true
           cp -f "$GITHUB_WORKSPACE/source_tree_inventory.txt" "$GITHUB_WORKSPACE/ci_outputs/" || true
-
-          if [ -f "$GITHUB_WORKSPACE/dart-sdk-full/sdk/pubspec.yaml" ]; then
-            cp -f "$GITHUB_WORKSPACE/dart-sdk-full/sdk/pubspec.yaml" "$GITHUB_WORKSPACE/ci_outputs/dart_sdk_pubspec.yaml"
-          fi
-
-      - name: Pack minimal closure as tar.xz
+          cp -f pubspec.yaml "$GITHUB_WORKSPACE/ci_outputs/dart_sdk_pubspec.yaml" || true
+          cp -f DEPS "$GITHUB_WORKSPACE/ci_outputs/dart_sdk_DEPS" || true
+      - name: Pack full Dart workspace source as tar.xz
         shell: bash
-        working-directory: dart-sdk-full/sdk
+        working-directory: dart-sdk-full
         run: |
           set -euxo pipefail
-          extra_args=()
-          if [ -f "$GITHUB_WORKSPACE/dart-sdk-full/sdk/pubspec.yaml" ]; then
-            extra_args+=(pubspec.yaml)
-          fi
-
-          tar -cJf "$GITHUB_WORKSPACE/ci_outputs/dart_frontend_closure_${DART_VERSION}.tar.xz" \
-            "${extra_args[@]}" \
-            pkg/frontend_server \
-            pkg/front_end \
-            pkg/kernel \
-            pkg/vm \
-            pkg/compiler \
-            pkg/dev_compiler \
-            pkg/dart2wasm \
-            pkg/build_integration \
-            pkg/_fe_analyzer_shared \
-            pkg/_js_interop_checks \
-            third_party/pkg \
-            third_party/devtools
-
-      - name: Pack full workspace as tar.xz
-        shell: bash
-        working-directory: dart-sdk-full/sdk
-        run: |
-          set -euxo pipefail
-          extra_args=()
-          if [ -f "$GITHUB_WORKSPACE/dart-sdk-full/sdk/pubspec.yaml" ]; then
-            extra_args+=(pubspec.yaml)
-          fi
-
-          tar -cJf "$GITHUB_WORKSPACE/ci_outputs/dart_pkg_workspace_${DART_VERSION}.tar.xz" \
-            "${extra_args[@]}" \
-            pkg \
-            third_party/pkg \
-            third_party/devtools
+          tar -cJf "$GITHUB_WORKSPACE/ci_outputs/dart_full_workspace_${DART_VERSION}.tar.xz" \
+            --exclude='sdk/.git' \
+            --exclude='sdk/.git/**' \
+            --exclude='sdk/**/.git' \
+            --exclude='sdk/**/.git/**' \
+            --exclude='sdk/**/.gitignore' \
+            --exclude='sdk/**/.gitmodules' \
+            sdk
 
 
       - name: Upload CI outputs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dart-frontend-closure-outputs
+          name: dart-full-workspace-outputs
           path: ci_outputs/
           if-no-files-found: error
           retention-days: 14
