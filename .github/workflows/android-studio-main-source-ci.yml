@@ -1,0 +1,79 @@
+name: android-studio-main-source-ci
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync-and-archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      SOURCE_ROOT: ${{ github.workspace }}/android-studio-main-source
+      ARCHIVE_DIR: ${{ github.workspace }}/ci_outputs
+
+    steps:
+      - name: Install required tools
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y git curl ca-certificates
+
+      - name: Install repo when unavailable
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if command -v repo >/dev/null 2>&1; then
+            repo --version
+            exit 0
+          fi
+
+          mkdir -p "$HOME/bin"
+          curl --fail --location --retry 3 \
+            --output "$HOME/bin/repo" \
+            https://storage.googleapis.com/git-repo-downloads/repo
+          chmod +x "$HOME/bin/repo"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          "$HOME/bin/repo" --version
+
+      - name: Initialize and sync studio-main
+        shell: bash
+        run: |
+          set -euxo pipefail
+          export PATH="$HOME/bin:$PATH"
+
+          mkdir -p "$SOURCE_ROOT"
+          cd "$SOURCE_ROOT"
+
+          mkdir studio-main
+          cd studio-main
+          repo init -u https://android.googlesource.com/platform/manifest -b studio-main
+          repo sync -c -j4 -q
+
+          repo manifest -r > "$GITHUB_WORKSPACE/studio-main-manifest.xml"
+          repo status > "$GITHUB_WORKSPACE/studio-main-repo-status.txt" || true
+          du -sh . | tee "$GITHUB_WORKSPACE/studio-main-size.txt"
+
+      - name: Create uncompressed studio-main tar archive
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$ARCHIVE_DIR"
+          cd "$SOURCE_ROOT"
+
+          # Archive is outside studio-main, so tar cannot include itself.
+          tar -cpf "$ARCHIVE_DIR/studio-main.tar" studio-main
+          sha256sum "$ARCHIVE_DIR/studio-main.tar" > "$ARCHIVE_DIR/studio-main.tar.sha256"
+
+          cp -f "$GITHUB_WORKSPACE/studio-main-manifest.xml" "$ARCHIVE_DIR/"
+          cp -f "$GITHUB_WORKSPACE/studio-main-repo-status.txt" "$ARCHIVE_DIR/"
+          cp -f "$GITHUB_WORKSPACE/studio-main-size.txt" "$ARCHIVE_DIR/"
+
+      - name: Upload studio-main archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-studio-main-source
+          path: ci_outputs/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
